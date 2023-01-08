@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
 use crate::{
-    error::Error,
-    genvec::{GenEntry, GenIndex, GenVec},
+    genvec::{GenIndex, GenVec},
     prelude::*,
 };
 
@@ -12,16 +11,21 @@ use std::{
 };
 
 trait AnyComponent: Any {
+    // append new entity
     fn push_new(&mut self, gen: u64);
+    // repopulate freed entitiy
+    fn repop(&mut self, idx: Index) -> Result<()>;
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn len(&self) -> usize;
     fn indices<'a>(&'a self) -> Box<dyn Iterator<Item = GenIndex> + 'a>;
+    fn is_full(&self, idx: usize) -> bool;
+    fn remove_entity(&mut self, idx: Index) -> Result<()>;
 }
 
 impl<T: 'static> AnyComponent for Storage<T> {
     fn push_new(&mut self, gen: u64) {
-        self.0.push(GenEntry { gen, val: None });
+        self.push(None, gen);
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -45,6 +49,18 @@ impl<T: 'static> AnyComponent for Storage<T> {
                 .map(|(i, v)| GenIndex { idx: i, gen: v.gen }),
         )
     }
+
+    fn is_full(&self, idx: usize) -> bool {
+        self.0[idx].val.is_some()
+    }
+
+    fn remove_entity(&mut self, idx: Index) -> Result<()> {
+        self.free(idx)
+    }
+
+    fn repop(&mut self, idx: Index) -> Result<()> {
+        self.repop(idx, None)
+    }
 }
 
 impl AnyComponent for Box<dyn AnyComponent> {
@@ -65,7 +81,19 @@ impl AnyComponent for Box<dyn AnyComponent> {
     }
 
     fn indices<'a>(&'a self) -> Box<dyn Iterator<Item = GenIndex> + 'a> {
-        return self.as_ref().indices();
+        self.as_ref().indices()
+    }
+
+    fn is_full(&self, idx: usize) -> bool {
+        self.as_ref().is_full(idx)
+    }
+
+    fn remove_entity(&mut self, idx: Index) -> Result<()> {
+        self.as_mut().remove_entity(idx)
+    }
+
+    fn repop(&mut self, idx: Index) -> Result<()> {
+        self.as_mut().repop(idx)
     }
 }
 
@@ -75,10 +103,12 @@ type Storage<T> = GenVec<Option<T>>;
 // Holds a entity vector for every component type.
 // Entity vectors are accessed with generational indices.
 // The generation of a single entity is equal in all component vectors.
+// Component vectors might have holes where no entity resides. These are the same in every
+// Component and are different of an entity not having a specific component.
 struct Ecs {
     entities: HashMap<TypeId, Box<dyn AnyComponent>>,
+    // Stores Generational Indices of the next free variable (with updated generation.)
     free_list: Vec<Index>,
-    is_free: GenVec<bool>,
 }
 
 impl Ecs {
@@ -86,18 +116,21 @@ impl Ecs {
         Ecs {
             entities: HashMap::new(),
             free_list: vec![],
-            is_free: Default::default(),
         }
     }
 
     fn add_component<T: 'static>(&mut self) {
         let mut c = Storage::<T>::default();
         if !self.entities.is_empty() {
-            // Fill the component with the correct generations of the other components
+            // Fill the component with the correct generations and slot holes of the other components
             let e1 = self.entities.values().next().unwrap().as_ref();
             c.0.reserve(e1.len());
             for idx in e1.indices() {
-                c.push_new(idx.gen);
+                if e1.is_full(idx.idx) {
+                    c.push_hole(idx.gen);
+                } else {
+                    c.push(None, idx.gen);
+                }
             }
         }
         self.entities.insert(TypeId::of::<T>(), Box::new(c));
@@ -121,60 +154,46 @@ impl Ecs {
             .unwrap()
     }
 
+    /// Adds a new entity without any components
     fn add_entity(&mut self) -> Index {
         assert!(
             !self.entities.is_empty(),
             "Can't add entity if there is no component."
         );
-        for (_, s) in self.entities.iter_mut() {
-            s.push_new(0);
+        if let Some(next_free) = self.free_list.pop() {
+            for v in self.entities.values_mut() {
+                v.repop(next_free).unwrap();
+            }
+            next_free
+        } else {
+            for s in self.entities.values_mut() {
+                s.push_new(0);
+            }
+            GenIndex {
+                idx: self.entities.iter().next().unwrap().1.len() - 1,
+                gen: 0,
+            }
         }
-        self.is_free.push(false, 0);
-        GenIndex {
-            idx: self.entities.iter().next().unwrap().1.len() - 1,
-            gen: 0,
-        }
-    }
-
-    fn check_valid_index(&self, idx: Index) -> Result<()> {
-        if idx.idx >= self.is_free.0.len() {
-            return Err(Error::Generic(format!(
-                "Index out of bounds: '{}'.",
-                idx.idx
-            )));
-        };
-        let Some(&free) = self.is_free.get(idx) else {
-            return Err(Error::Generic(format!("Index '{}' has invalid generation", idx)));
-        };
-        if free {
-            return Err(Error::Generic(format!("No entity at index '{}'", idx.idx)));
-        }
-        Ok(())
     }
 
     fn set_entity<T: 'static>(&mut self, idx: Index, value: T) -> Result<()> {
-        self.check_valid_index(idx)?;
         self.get_component_mut::<T>().set(idx, Some(value))
     }
 
     fn get_entity<T: 'static>(&self, idx: Index) -> Option<&Option<T>> {
-        if self.check_valid_index(idx).is_err() {
-            return None;
-        }
         self.get_component::<T>().get(idx)
     }
 
     fn get_entity_mut<T: 'static>(&mut self, idx: Index) -> Option<&mut Option<T>> {
-        if self.check_valid_index(idx).is_err() {
-            return None;
-        }
         self.get_component_mut::<T>().get_mut(idx)
     }
 
     fn remove_entity(&mut self, idx: Index) -> Result<()> {
-        self.check_valid_index(idx)?;
         self.free_list.push(idx.next());
-        self.is_free.set(idx, true)
+        for c in self.entities.values_mut() {
+            c.remove_entity(idx)?;
+        }
+        Ok(())
     }
 }
 
@@ -194,6 +213,7 @@ mod tests {
         let mut ecs = Ecs::new();
         ecs.add_component::<i64>();
         let idx = ecs.add_entity();
+        assert!(ecs.get_component::<i64>().get(idx).unwrap().is_none());
         ecs.set_entity(idx, 5_i64).unwrap();
         assert_eq!(ecs.get_component::<i64>().get(idx).unwrap().unwrap(), 5_i64);
     }
@@ -204,7 +224,31 @@ mod tests {
         ecs.add_component::<i64>();
         let idx = ecs.add_entity();
         ecs.set_entity(idx, 5_i64).unwrap();
+        assert!(ecs.get_component::<i64>().get(idx).unwrap().is_some());
         ecs.remove_entity(idx).unwrap();
         assert!(ecs.get_component::<i64>().get(idx).is_none());
+    }
+
+    #[test]
+    fn insert_after_remove_entity() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i64>();
+        let idx = ecs.add_entity();
+        ecs.remove_entity(idx).unwrap();
+        let idx2 = ecs.add_entity();
+        assert_eq!(idx.next(), idx2);
+    }
+
+    #[test]
+    fn iter_component() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i64>();
+        let _ = ecs.add_entity();
+        let idx2 = ecs.add_entity();
+        ecs.set_entity(idx2, 5_i64).unwrap();
+        assert_eq!(
+            ecs.get_component::<i64>().iter().nth(1).unwrap().unwrap(),
+            5_i64
+        );
     }
 }

@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::prelude::*;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GenIndex {
     pub idx: usize,
     pub gen: u64,
@@ -22,26 +22,31 @@ impl std::fmt::Display for GenIndex {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct GenEntry<T> {
-    pub val: T,
+    pub val: Option<T>,
     pub gen: u64,
 }
 
 impl<T> GenEntry<T> {
     pub fn new(val: T) -> Self {
-        GenEntry { val, gen: 0 }
+        GenEntry {
+            val: Some(val),
+            gen: 0,
+        }
     }
 }
 
 impl<T: Default> Default for GenEntry<T> {
     fn default() -> Self {
         Self {
-            val: Default::default(),
+            val: Some(Default::default()),
             gen: Default::default(),
         }
     }
 }
 
+#[derive(Debug)]
 pub struct GenVec<T>(pub Vec<GenEntry<T>>);
 
 impl<T> Default for GenVec<T> {
@@ -56,13 +61,20 @@ impl<T> GenVec<T> {
     }
 
     pub fn push(&mut self, val: T, gen: u64) {
-        self.0.push(GenEntry { val, gen });
+        self.0.push(GenEntry {
+            val: Some(val),
+            gen,
+        });
+    }
+
+    pub fn push_hole(&mut self, gen: u64) {
+        self.0.push(GenEntry { val: None, gen })
     }
 
     pub fn get(&self, idx: GenIndex) -> Option<&T> {
         let GenEntry { val, gen } = self.0.get(idx.idx)?;
         if *gen == idx.gen {
-            Some(val)
+            val.as_ref()
         } else {
             None
         }
@@ -71,18 +83,63 @@ impl<T> GenVec<T> {
     pub fn get_mut(&mut self, idx: GenIndex) -> Option<&mut T> {
         let GenEntry { val, gen } = self.0.get_mut(idx.idx)?;
         if *gen == idx.gen {
-            Some(val)
+            val.as_mut()
         } else {
             None
         }
     }
 
+    /// Set only works if there is a valid entry at idx already.
     pub fn set(&mut self, idx: GenIndex, value: T) -> Result<()> {
         if let Some(val) = self.get_mut(idx) {
             *val = value;
             Ok(())
         } else {
-            Err(Error::Generic("Invalid generation.".to_string()))
+            Err(Error::Generic(format!("Invalid index: '{}'.", idx)))
         }
+    }
+
+    /// Repopulate with val if slot is free.
+    pub fn repop(&mut self, idx: GenIndex, value: T) -> Result<()> {
+        let Some(GenEntry { val, .. }) = self.0.get_mut(idx.idx) else {
+            return Err(Error::Generic(format!("Invlid index: '{}'.", idx)));
+        };
+        if val.is_some() {
+            return Err(Error::Generic(format!(
+                "Value is already populated at index: '{}'.",
+                idx
+            )));
+        }
+        *val = Some(value);
+        Ok(())
+    }
+
+    pub fn free(&mut self, idx: GenIndex) -> Result<()> {
+        let Some(GenEntry { val, gen }) = self.0.get_mut(idx.idx) else {
+            return Err(Error::Generic(format!("Invlid index: '{}'.", idx)));
+        };
+        if *gen != idx.gen {
+            return Err(Error::Generic(format!(
+                "Invlid index generation: '{}' expected: '{}'",
+                idx, idx.gen
+            )));
+        }
+        if val.is_none() {
+            return Err(Error::Generic("Entry already freed".to_string()));
+        }
+        *val = None;
+        Ok(())
+    }
+
+    // Iterates over all entries ignoring holes.
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.0.iter().filter_map(|v| v.val.as_ref())
+    }
+}
+
+impl<T: Default> GenVec<T> {
+    /// If the slot is free repopulate it with the default value.
+    pub fn repop_default(&mut self, idx: GenIndex) -> Result<()> {
+        self.repop(idx, Default::default())
     }
 }
