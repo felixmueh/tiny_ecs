@@ -135,6 +135,11 @@ impl<T> GenVec<T> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.0.iter().filter_map(|v| v.val.as_ref())
     }
+
+    // Iterates over all entries ignoring holes.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.0.iter_mut().filter_map(|v| v.val.as_mut())
+    }
 }
 
 impl<T: Default> GenVec<T> {

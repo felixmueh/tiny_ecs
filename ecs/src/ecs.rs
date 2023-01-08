@@ -100,6 +100,26 @@ impl AnyComponent for Box<dyn AnyComponent> {
 type Index = GenIndex;
 type Storage<T> = GenVec<Option<T>>;
 
+trait Component<T> {
+    fn iter_valid<'a>(&'a self) -> Box<dyn Iterator<Item = &T> + 'a>;
+}
+
+trait ComponentMut<T> {
+    fn iter_valid_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &mut T> + 'a>;
+}
+
+impl<T> Component<T> for Storage<T> {
+    fn iter_valid<'a>(&'a self) -> Box<dyn Iterator<Item = &T> + 'a> {
+        Box::new(self.iter().filter_map(|v| v.as_ref()))
+    }
+}
+
+impl<T> ComponentMut<T> for Storage<T> {
+    fn iter_valid_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &mut T> + 'a> {
+        Box::new(self.iter_mut().filter_map(|v| v.as_mut()))
+    }
+}
+
 // Holds a entity vector for every component type.
 // Entity vectors are accessed with generational indices.
 // The generation of a single entity is equal in all component vectors.
@@ -249,6 +269,27 @@ mod tests {
         assert_eq!(
             ecs.get_component::<i64>().iter().nth(1).unwrap().unwrap(),
             5_i64
+        );
+        assert_eq!(
+            *ecs.get_component::<i64>().iter_valid().next().unwrap(),
+            5_i64
+        );
+    }
+
+    #[test]
+    fn iter_component_mut() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i64>();
+        let _ = ecs.add_entity();
+        let idx2 = ecs.add_entity();
+        ecs.set_entity(idx2, 5_i64).unwrap();
+        *ecs.get_component_mut::<i64>()
+            .iter_valid_mut()
+            .next()
+            .unwrap() = 7;
+        assert_eq!(
+            *ecs.get_component::<i64>().iter_valid().next().unwrap(),
+            7_i64
         );
     }
 }
