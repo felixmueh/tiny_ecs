@@ -1,8 +1,0 @@
-#+title: Rust Game Development
-
-* Resources
-- https://bfnightly.bracketproductions.com/rustbook/chapter_1.html
-- [[https://www.youtube.com/watch?v=oHYs-UqS458&t=1686s][Rust for game development talk]]
-
-* Libraries
-- https://github.com/amethyst/bracket-lib (Rouge like game engine)

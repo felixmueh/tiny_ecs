@@ -1,6 +1,6 @@
-pub mod creatures;
+mod ecs;
+mod prelude;
+
 pub mod error;
-pub mod prelude;
-pub mod render;
-pub mod state;
-pub mod world;
+pub use ecs::*;
+pub mod genvec;

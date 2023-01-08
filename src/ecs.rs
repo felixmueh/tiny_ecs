@@ -400,7 +400,7 @@ mod tests {
         ecs.add_component::<Position>();
         ecs.add_component::<Velocity>();
 
-        let i1 = ecs.add_entity();
+        let _ = ecs.add_entity();
         let i2 = ecs.add_entity();
         let i3 = ecs.add_entity();
 
@@ -419,6 +419,5 @@ mod tests {
         for p in ecs.get_component::<Position>().iter_valid() {
             dbg!(p);
         }
-        panic!();
     }
 }
