@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 bracket-lib = "0.8.7"
 thiserror = "1.0.38"
+ecs = { path = "./ecs" }
 
 [workspace]
 

@@ -1,23 +1,20 @@
-use crate::{creatures::Creature, world::World};
+use crate::world::World;
+use ecs::Ecs;
 
 pub struct State {
     pub world: World,
-    pub creatures: Vec<Box<dyn Creature>>,
+    pub ecs: Ecs,
+}
+
+pub struct Position {
+    pub x: usize,
+    pub y: usize,
 }
 
 impl State {
     pub fn from_world(world: World) -> Self {
-        State {
-            world,
-            creatures: vec![],
-        }
-    }
-
-    pub fn iter_creatures(&self) -> impl Iterator<Item = &Box<dyn Creature>> {
-        self.creatures.iter()
-    }
-
-    pub fn add_creature(&mut self, c: Box<dyn Creature>) {
-        self.creatures.push(c);
+        let mut ecs = Ecs::new();
+        ecs.add_component::<Position>();
+        State { world, ecs }
     }
 }

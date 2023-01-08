@@ -120,11 +120,11 @@ fn join_mut<'a, A: 'a, B: 'a>(
         .map(|(a, b)| (a.as_mut().unwrap(), b.as_mut().unwrap()))
 }
 
-trait Component<T> {
+pub trait Component<T> {
     fn iter_valid<'a>(&'a self) -> Box<dyn Iterator<Item = &T> + 'a>;
 }
 
-trait ComponentMut<T> {
+pub trait ComponentMut<T> {
     fn iter_valid_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &mut T> + 'a>;
 }
 
@@ -145,21 +145,21 @@ impl<T> ComponentMut<T> for Storage<T> {
 // The generation of a single entity is equal in all component vectors.
 // Component vectors might have holes where no entity resides. These are the same in every
 // Component and are different of an entity not having a specific component.
-struct Ecs {
+pub struct Ecs {
     entities: HashMap<TypeId, Box<dyn AnyComponent>>,
     // Stores Generational Indices of the next free variable (with updated generation.)
     free_list: Vec<Index>,
 }
 
 impl Ecs {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Ecs {
             entities: HashMap::new(),
             free_list: vec![],
         }
     }
 
-    fn add_component<T: 'static>(&mut self) {
+    pub fn add_component<T: 'static>(&mut self) {
         let mut c = Storage::<T>::default();
         if !self.entities.is_empty() {
             // Fill the component with the correct generations and slot holes of the other components
@@ -176,7 +176,7 @@ impl Ecs {
         self.entities.insert(TypeId::of::<T>(), Box::new(c));
     }
 
-    fn get_components<A: 'static, B: 'static>(&self) -> impl Iterator<Item = (&A, &B)>
+    pub fn get_components<A: 'static, B: 'static>(&self) -> impl Iterator<Item = (&A, &B)>
     where
         A: 'static,
         B: 'static,
@@ -184,7 +184,7 @@ impl Ecs {
         join(self.get_component::<A>(), self.get_component::<B>())
     }
 
-    fn get_components_mut<A: 'static, B: 'static>(
+    pub fn get_components_mut<A: 'static, B: 'static>(
         &mut self,
     ) -> impl Iterator<Item = (&mut A, &mut B)>
     where
@@ -201,7 +201,7 @@ impl Ecs {
         }
     }
 
-    fn get_component<T: 'static>(&self) -> &Storage<T> {
+    pub fn get_component<T: 'static>(&self) -> &Storage<T> {
         self.entities
             .get(&TypeId::of::<T>())
             .unwrap()
@@ -210,7 +210,7 @@ impl Ecs {
             .unwrap()
     }
 
-    fn get_component_mut<T: 'static>(&mut self) -> &mut Storage<T> {
+    pub fn get_component_mut<T: 'static>(&mut self) -> &mut Storage<T> {
         self.entities
             .get_mut(&TypeId::of::<T>())
             .unwrap()
@@ -220,7 +220,7 @@ impl Ecs {
     }
 
     /// Adds a new entity without any components
-    fn add_entity(&mut self) -> Index {
+    pub fn add_entity(&mut self) -> Index {
         assert!(
             !self.entities.is_empty(),
             "Can't add entity if there is no component."
@@ -241,23 +241,23 @@ impl Ecs {
         }
     }
 
-    fn set_entity<T: 'static>(&mut self, idx: Index, value: T) -> Result<()> {
+    pub fn set_entity<T: 'static>(&mut self, idx: Index, value: T) -> Result<()> {
         self.get_component_mut::<T>().set(idx, Some(value))
     }
 
-    fn get_entity<T: 'static>(&self, idx: Index) -> Option<&Option<T>> {
+    pub fn get_entity<T: 'static>(&self, idx: Index) -> Option<&Option<T>> {
         self.get_component::<T>().get(idx)
     }
 
-    fn get_entity_mut<T: 'static>(&mut self, idx: Index) -> Option<&mut Option<T>> {
+    pub fn get_entity_mut<T: 'static>(&mut self, idx: Index) -> Option<&mut Option<T>> {
         self.get_component_mut::<T>().get_mut(idx)
     }
 
-    fn remove_entity(&mut self, idx: Index) -> Result<()> {
-        self.free_list.push(idx.next());
+    pub fn remove_entity(&mut self, idx: Index) -> Result<()> {
         for c in self.entities.values_mut() {
             c.remove_entity(idx)?;
         }
+        self.free_list.push(idx.next());
         Ok(())
     }
 }
@@ -380,5 +380,45 @@ mod tests {
         let (a, b) = ecs.get_components::<i64, String>().next().unwrap();
         assert_eq!(*a, 7_i64);
         assert_eq!(*b, "Test2".to_string());
+    }
+
+    #[test]
+    fn complicated_example() {
+        #[derive(Debug)]
+        struct Position {
+            x: i64,
+            y: i64,
+        }
+
+        #[derive(Debug)]
+        struct Velocity {
+            x: i64,
+            y: i64,
+        }
+
+        let mut ecs = Ecs::new();
+        ecs.add_component::<Position>();
+        ecs.add_component::<Velocity>();
+
+        let i1 = ecs.add_entity();
+        let i2 = ecs.add_entity();
+        let i3 = ecs.add_entity();
+
+        for e in ecs.get_component_mut::<Position>().iter_mut() {
+            *e = Some(Position { x: 0, y: 0 });
+        }
+
+        ecs.set_entity(i2, Velocity { x: 1, y: 1 }).unwrap();
+        ecs.set_entity(i3, Velocity { x: -1, y: 1 }).unwrap();
+
+        for (p, v) in ecs.get_components_mut::<Position, Velocity>() {
+            p.x += v.x;
+            p.y += v.y;
+        }
+
+        for p in ecs.get_component::<Position>().iter_valid() {
+            dbg!(p);
+        }
+        panic!();
     }
 }

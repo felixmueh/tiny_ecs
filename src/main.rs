@@ -1,8 +1,7 @@
 use bracket_lib::terminal::{main_loop, BTermBuilder, GameState};
-use df_clone::creatures::dwarf::Dwarf;
 use df_clone::prelude::*;
 use df_clone::render::Render;
-use df_clone::state::State;
+use df_clone::state::{Position, State};
 use df_clone::world::World;
 
 const MAX_FPS: usize = 30;
@@ -18,7 +17,8 @@ impl GameState for LoopState {
 fn main() -> Result<()> {
     let w = World::new(80, 50);
     let mut s = State::from_world(w);
-    s.add_creature(Dwarf::spawn(2, 2));
+    let idx = s.ecs.add_entity();
+    s.ecs.set_entity(idx, Position { x: 2, y: 2 }).unwrap();
 
     let context = BTermBuilder::simple80x50()
         .with_font("vga8x16.png", 8u32, 16u32)

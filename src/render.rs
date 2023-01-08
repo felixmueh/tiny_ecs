@@ -1,8 +1,12 @@
+use ecs::Component;
 use std::io::{stdout, Write};
 
 use bracket_lib::terminal::{to_cp437, BLACK, GRAY, RED, RGB};
 
-use crate::{state::State, world::Cell};
+use crate::{
+    state::{Position, State},
+    world::Cell,
+};
 
 pub trait Render {
     fn render(&self, ctx: &mut bracket_lib::terminal::BTerm);
@@ -24,10 +28,9 @@ impl Render for State {
             ctx.set(x, y, bg, fg, to_cp437(sym));
         }
         ctx.set_active_console(1);
-        for c in self.iter_creatures() {
-            let (x, y) = c.get_pos();
-            let (_, bg, _) = cell_style(self.world.get_cell(x, y).unwrap());
-            ctx.set(x, y, bg, RGB::named(RED), to_cp437('☺'));
+        for c in self.ecs.get_component::<Position>().iter_valid() {
+            let (_, bg, _) = cell_style(self.world.get_cell(c.x, c.y).unwrap());
+            ctx.set(c.x, c.y, bg, RGB::named(RED), to_cp437('☺'));
         }
         stdout().flush().unwrap();
     }
