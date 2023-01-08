@@ -100,6 +100,16 @@ impl AnyComponent for Box<dyn AnyComponent> {
 type Index = GenIndex;
 type Storage<T> = GenVec<Option<T>>;
 
+fn join<'a, A: 'a, B: 'a>(
+    c1: &'a Storage<A>,
+    c2: &'a Storage<B>,
+) -> impl Iterator<Item = (&'a A, &'a B)> {
+    c1.iter()
+        .zip(c2.iter())
+        .filter(|&(a, b)| a.is_some() && b.is_some())
+        .map(|(a, b)| (a.as_ref().unwrap(), b.as_ref().unwrap()))
+}
+
 trait Component<T> {
     fn iter_valid<'a>(&'a self) -> Box<dyn Iterator<Item = &T> + 'a>;
 }
@@ -154,6 +164,14 @@ impl Ecs {
             }
         }
         self.entities.insert(TypeId::of::<T>(), Box::new(c));
+    }
+
+    fn get_components<A: 'static, B: 'static>(&self) -> impl Iterator<Item = (&A, &B)>
+    where
+        A: 'static,
+        B: 'static,
+    {
+        join(self.get_component::<A>(), self.get_component::<B>())
     }
 
     fn get_component<T: 'static>(&self) -> &Storage<T> {
@@ -291,5 +309,33 @@ mod tests {
             *ecs.get_component::<i64>().iter_valid().next().unwrap(),
             7_i64
         );
+    }
+
+    #[test]
+    fn iter_join() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i64>();
+        ecs.add_component::<String>();
+        let idx = ecs.add_entity();
+        ecs.set_entity(idx, 5_i64).unwrap();
+        ecs.set_entity(idx, "Test".to_string()).unwrap();
+        let (a, b) = join(ecs.get_component::<i64>(), ecs.get_component::<String>())
+            .next()
+            .unwrap();
+        assert_eq!(*a, 5_i64);
+        assert_eq!(*b, "Test".to_string());
+    }
+
+    #[test]
+    fn get_components() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i64>();
+        ecs.add_component::<String>();
+        let idx = ecs.add_entity();
+        ecs.set_entity(idx, 5_i64).unwrap();
+        ecs.set_entity(idx, "Test".to_string()).unwrap();
+        let (a, b) = ecs.get_components::<i64, String>().next().unwrap();
+        assert_eq!(*a, 5_i64);
+        assert_eq!(*b, "Test".to_string());
     }
 }
