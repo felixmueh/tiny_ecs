@@ -110,6 +110,16 @@ fn join<'a, A: 'a, B: 'a>(
         .map(|(a, b)| (a.as_ref().unwrap(), b.as_ref().unwrap()))
 }
 
+fn join_mut<'a, A: 'a, B: 'a>(
+    c1: &'a mut Storage<A>,
+    c2: &'a mut Storage<B>,
+) -> impl Iterator<Item = (&'a mut A, &'a mut B)> {
+    c1.iter_mut()
+        .zip(c2.iter_mut())
+        .filter(|(a, b)| a.is_some() && b.is_some())
+        .map(|(a, b)| (a.as_mut().unwrap(), b.as_mut().unwrap()))
+}
+
 trait Component<T> {
     fn iter_valid<'a>(&'a self) -> Box<dyn Iterator<Item = &T> + 'a>;
 }
@@ -172,6 +182,23 @@ impl Ecs {
         B: 'static,
     {
         join(self.get_component::<A>(), self.get_component::<B>())
+    }
+
+    fn get_components_mut<A: 'static, B: 'static>(
+        &mut self,
+    ) -> impl Iterator<Item = (&mut A, &mut B)>
+    where
+        A: 'static,
+        B: 'static,
+    {
+        assert!(TypeId::of::<A>() != TypeId::of::<B>());
+        // It is safe to give two mutable references to two different components.
+        unsafe {
+            join_mut(
+                (*(self as *mut Self)).get_component_mut::<A>(),
+                self.get_component_mut::<B>(),
+            )
+        }
     }
 
     fn get_component<T: 'static>(&self) -> &Storage<T> {
@@ -337,5 +364,21 @@ mod tests {
         let (a, b) = ecs.get_components::<i64, String>().next().unwrap();
         assert_eq!(*a, 5_i64);
         assert_eq!(*b, "Test".to_string());
+    }
+
+    #[test]
+    fn get_components_mut() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i64>();
+        ecs.add_component::<String>();
+        let idx = ecs.add_entity();
+        ecs.set_entity(idx, 5_i64).unwrap();
+        ecs.set_entity(idx, "Test".to_string()).unwrap();
+        let (a, b) = ecs.get_components_mut::<i64, String>().next().unwrap();
+        *a = 7;
+        *b = "Test2".to_string();
+        let (a, b) = ecs.get_components::<i64, String>().next().unwrap();
+        assert_eq!(*a, 7_i64);
+        assert_eq!(*b, "Test2".to_string());
     }
 }
