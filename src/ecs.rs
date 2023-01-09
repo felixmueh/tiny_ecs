@@ -10,6 +10,11 @@ use std::{
     collections::HashMap,
 };
 
+type Index = GenIndex;
+type Storage<T> = GenVec<Option<T>>;
+
+// Any components are used dynamically store the storage types and still implement
+// some methods on them.
 trait AnyComponent: Any {
     // append new entity
     fn push_new(&mut self, gen: u64);
@@ -97,9 +102,6 @@ impl AnyComponent for Box<dyn AnyComponent> {
     }
 }
 
-type Index = GenIndex;
-type Storage<T> = GenVec<Option<T>>;
-
 fn join<'a, A: 'a, B: 'a>(
     c1: &'a Storage<A>,
     c2: &'a Storage<B>,
@@ -120,6 +122,7 @@ fn join_mut<'a, A: 'a, B: 'a>(
         .map(|(a, b)| (a.as_mut().unwrap(), b.as_mut().unwrap()))
 }
 
+// Implements sensible component like iteration over the storage types.
 pub trait Component<T> {
     fn iter_valid<'a>(&'a self) -> Box<dyn Iterator<Item = &T> + 'a>;
 }
@@ -235,7 +238,7 @@ impl Ecs {
                 s.push_new(0);
             }
             GenIndex {
-                idx: self.entities.iter().next().unwrap().1.len() - 1,
+                idx: self.entities.values().next().unwrap().len() - 1,
                 gen: 0,
             }
         }
