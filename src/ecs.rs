@@ -1,11 +1,9 @@
 #![allow(dead_code)]
 
 use crate::{
-    error::Error,
     genvec::{GenIndex, GenVec},
     prelude::*,
 };
-use itertools::{multizip, Itertools};
 
 use std::{
     any::{Any, TypeId},
