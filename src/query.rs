@@ -81,23 +81,23 @@ impl_queries! { a A, b B, c C, d D, e E, f F, g G, h H }
 mod tests {
     use super::*;
 
-    // #[test]
-    // fn test_basic_teration() {
-    //     let mut ecs = Ecs::new();
-    //     ecs.add_component::<i64>();
-    //     let i1 = ecs.add_entity();
-    //     let i2 = ecs.add_entity();
-    //     ecs.set_entity(i1, 4_i64).unwrap();
-    //     ecs.set_entity(i2, 5_i64).unwrap();
+    #[test]
+    fn test_basic_teration() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i64>();
+        let i1 = ecs.add_entity();
+        let i2 = ecs.add_entity();
+        ecs.set_entity(i1, 4_i64).unwrap();
+        ecs.set_entity(i2, 5_i64).unwrap();
 
-    //     for p in <&mut i64>::query_mut(&mut ecs) {
-    //         *p.as_mut().unwrap() += 1;
-    //     }
+        for p in <&mut i64>::query_mut(&mut ecs).unwrap().flatten() {
+            *p += 1;
+        }
 
-    //     let mut iter = <&i64>::query_mut(&mut ecs);
-    //     assert_eq!((iter.next().unwrap().unwrap()), 5_i64);
-    //     assert_eq!((iter.next().unwrap().unwrap()), 6_i64);
-    // }
+        let mut iter = <&i64>::query_mut(&mut ecs).unwrap();
+        assert_eq!(*(iter.next().unwrap().unwrap()), 5_i64);
+        assert_eq!(*(iter.next().unwrap().unwrap()), 6_i64);
+    }
 
     #[test]
     fn test_tuple_teration() {
