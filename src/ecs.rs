@@ -3,6 +3,7 @@
 use crate::{
     genvec::{GenIndex, GenVec},
     prelude::*,
+    query::Query,
 };
 
 use std::{
@@ -229,40 +230,42 @@ impl Ecs {
         Ok(())
     }
 
-    // fn iter_mut<'w, T>(&'w mut self) -> Box<dyn Iterator<Item = <T as Query<T>>::Item<'w>> + 'w>
-    // where
-    //     T: Query<T> + 'static,
-    // {
-    //     Box::new(T::query_mut(self))
-    // }
+    fn iter_mut<'w, T>(
+        &'w mut self,
+    ) -> Option<Box<dyn Iterator<Item = <T as Query<T>>::Item<'w>> + 'w>>
+    where
+        T: Query<T> + 'static,
+    {
+        Some(Box::new(T::query_mut(self)?.flatten()))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // #[test]
-    // fn better_ergonomics() {
-    //     let mut ecs = Ecs::new();
-    //     ecs.add_component::<i64>();
-    //     ecs.add_component::<bool>();
-    //     let i1 = ecs.add_entity();
-    //     let i2 = ecs.add_entity();
-    //     ecs.set_entity(i1, true).unwrap();
-    //     ecs.set_entity(i1, 5_i64).unwrap();
-    //     ecs.set_entity(i2, false).unwrap();
-    //     ecs.set_entity(i2, 5_i64).unwrap();
+    #[test]
+    fn better_ergonomics() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i64>();
+        ecs.add_component::<bool>();
+        let i1 = ecs.add_entity();
+        let i2 = ecs.add_entity();
+        ecs.set_entity(i1, true).unwrap();
+        ecs.set_entity(i1, 5_i64).unwrap();
+        ecs.set_entity(i2, false).unwrap();
+        ecs.set_entity(i2, 5_i64).unwrap();
 
-    //     for (p, b) in ecs.iter_mut::<(&mut i64, &bool)>() {
-    //         if **b {
-    //             **p += 1
-    //         }
-    //     }
+        for (p, b) in ecs.iter_mut::<(&mut i64, &bool)>().unwrap() {
+            if *b {
+                *p += 1
+            }
+        }
 
-    //     let mut iter = ecs.iter::<(&i64,)>();
-    //     assert_eq!(*(iter.next().unwrap().0), 6_i64);
-    //     assert_eq!(*(iter.next().unwrap().0), 5_i64);
-    // }
+        let mut iter = ecs.iter_mut::<&i64>().unwrap();
+        assert_eq!(*(iter.next().unwrap()), 6_i64);
+        assert_eq!(*(iter.next().unwrap()), 5_i64);
+    }
 
     #[test]
     fn add_component() {
