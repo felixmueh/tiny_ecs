@@ -3,7 +3,7 @@
 use crate::{
     genvec::{GenIndex, GenVec},
     prelude::*,
-    query::Query,
+    query::{Query, Set},
 };
 
 use std::{
@@ -13,6 +13,8 @@ use std::{
 
 pub type Index = GenIndex;
 pub type Storage<T> = GenVec<Option<T>>;
+
+pub trait Component {}
 
 // Any components are used dynamically store the storage types and still implement
 // some methods on them.
@@ -104,21 +106,21 @@ impl AnyComponent for Box<dyn AnyComponent> {
 }
 
 // Implements sensible component like iteration over the storage types.
-pub trait Component<T> {
+pub trait ComponentStorage<T> {
     fn iter_valid<'a>(&'a self) -> Box<dyn Iterator<Item = &T> + 'a>;
 }
 
-pub trait ComponentMut<T> {
+pub trait ComponentStorageMut<T> {
     fn iter_valid_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &mut T> + 'a>;
 }
 
-impl<T> Component<T> for Storage<T> {
+impl<T> ComponentStorage<T> for Storage<T> {
     fn iter_valid<'a>(&'a self) -> Box<dyn Iterator<Item = &T> + 'a> {
         Box::new(self.iter().filter_map(|v| v.as_ref()))
     }
 }
 
-impl<T> ComponentMut<T> for Storage<T> {
+impl<T> ComponentStorageMut<T> for Storage<T> {
     fn iter_valid_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &mut T> + 'a> {
         Box::new(self.iter_mut().filter_map(|v| v.as_mut()))
     }
@@ -208,18 +210,18 @@ impl Ecs {
         }
     }
 
-    pub fn set_entity<T: 'static>(&mut self, idx: Index, value: T) -> Result<()> {
-        self.get_component_mut::<T>()
-            .ok_or("Can't find type.")?
-            .set(idx, Some(value))
+    pub fn set_entity<T>(&mut self, idx: Index, value: T) -> Result<()>
+    where
+        T: Set<T> + 'static,
+    {
+        <T>::set_or_create(self, idx, value)
     }
 
-    pub fn get_entity<T: 'static>(&self, idx: Index) -> Option<&Option<T>> {
-        self.get_component::<T>()?.get(idx)
-    }
-
-    pub fn get_entity_mut<T: 'static>(&mut self, idx: Index) -> Option<&mut Option<T>> {
-        self.get_component_mut::<T>()?.get_mut(idx)
+    pub fn get_entity_mut<T>(&mut self, idx: Index) -> Option<<T as Query<T>>::Item<'_>>
+    where
+        T: Query<T> + 'static,
+    {
+        <T>::get_mut(self, idx)
     }
 
     pub fn remove_entity(&mut self, idx: Index) -> Result<()> {
@@ -243,6 +245,18 @@ impl Ecs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_set_entity() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i32>();
+        let idx = ecs.add_entity();
+        ecs.set_entity(idx, (42, true)).unwrap();
+        assert_eq!(
+            ecs.get_entity_mut::<(&i32, &bool)>(idx).unwrap(),
+            (&42, &true)
+        );
+    }
 
     #[test]
     fn better_ergonomics() {
@@ -370,71 +384,83 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn get_components() {
-    //     let mut ecs = Ecs::new();
-    //     ecs.add_component::<i64>();
-    //     ecs.add_component::<String>();
-    //     let idx = ecs.add_entity();
-    //     ecs.set_entity(idx, 5_i64).unwrap();
-    //     ecs.set_entity(idx, "Test".to_string()).unwrap();
-    //     let (a, b) = ecs.get_components::<i64, String>().next().unwrap();
-    //     assert_eq!(*a, 5_i64);
-    //     assert_eq!(*b, "Test".to_string());
-    // }
+    #[test]
+    fn access_one_entity() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i64>();
+        let i = ecs.add_entity();
+        let v = ecs.get_entity_mut::<Option<&mut i64>>(i).unwrap();
+        v.replace(5_i64);
+        assert_eq!(
+            ecs.get_component::<i64>().unwrap().get(i).unwrap().unwrap(),
+            5_i64
+        );
+    }
 
-    // #[test]
-    // fn get_components_mut() {
-    //     let mut ecs = Ecs::new();
-    //     ecs.add_component::<i64>();
-    //     ecs.add_component::<String>();
-    //     let idx = ecs.add_entity();
-    //     ecs.set_entity(idx, 5_i64).unwrap();
-    //     ecs.set_entity(idx, "Test".to_string()).unwrap();
-    //     let (a, b) = ecs.get_components_mut::<i64, String>().next().unwrap();
-    //     *a = 7;
-    //     *b = "Test2".to_string();
-    //     let (a, b) = ecs.get_components::<i64, String>().next().unwrap();
-    //     assert_eq!(*a, 7_i64);
-    //     assert_eq!(*b, "Test2".to_string());
-    // }
+    #[test]
+    fn access_one_entity_multiple_fields() {
+        let mut ecs = Ecs::new();
+        ecs.add_component::<i64>();
+        ecs.add_component::<bool>();
+        let i = ecs.add_entity();
+        let (v, b) = ecs
+            .get_entity_mut::<(Option<&mut i64>, Option<&mut bool>)>(i)
+            .unwrap();
+        v.replace(5_i64);
+        b.replace(true);
+        assert_eq!(
+            ecs.get_component::<i64>().unwrap().get(i).unwrap().unwrap(),
+            5_i64
+        );
+        assert_eq!(
+            ecs.get_component::<bool>()
+                .unwrap()
+                .get(i)
+                .unwrap()
+                .unwrap(),
+            true
+        );
+    }
 
-    // #[test]
-    // fn complicated_example() {
-    //     #[derive(Debug)]
-    //     struct Position {
-    //         x: i64,
-    //         y: i64,
-    //     }
+    #[test]
+    fn complicated_example() {
+        #[derive(Debug)]
+        struct Position {
+            x: i64,
+            y: i64,
+        }
 
-    //     #[derive(Debug)]
-    //     struct Velocity {
-    //         x: i64,
-    //         y: i64,
-    //     }
+        #[derive(Debug)]
+        struct Velocity {
+            x: i64,
+            y: i64,
+        }
 
-    //     let mut ecs = Ecs::new();
-    //     ecs.add_component::<Position>();
-    //     ecs.add_component::<Velocity>();
+        impl Component for Position {}
+        impl Component for Velocity {}
 
-    //     let _ = ecs.add_entity();
-    //     let i2 = ecs.add_entity();
-    //     let i3 = ecs.add_entity();
+        let mut ecs = Ecs::new();
+        ecs.add_component::<Position>();
+        ecs.add_component::<Velocity>();
 
-    //     for e in ecs.get_component_mut::<Position>().iter_mut() {
-    //         *e = Some(Position { x: 0, y: 0 });
-    //     }
+        let _ = ecs.add_entity();
+        let i2 = ecs.add_entity();
+        let i3 = ecs.add_entity();
 
-    //     ecs.set_entity(i2, Velocity { x: 1, y: 1 }).unwrap();
-    //     ecs.set_entity(i3, Velocity { x: -1, y: 1 }).unwrap();
+        for e in ecs.get_component_mut::<Position>().unwrap().iter_mut() {
+            *e = Some(Position { x: 0, y: 0 });
+        }
 
-    //     for (p, v) in ecs.get_components_mut::<Position, Velocity>() {
-    //         p.x += v.x;
-    //         p.y += v.y;
-    //     }
+        ecs.set_entity(i2, Velocity { x: 1, y: 1 }).unwrap();
+        ecs.set_entity(i3, Velocity { x: -1, y: 1 }).unwrap();
 
-    //     for p in ecs.get_component::<Position>().iter_valid() {
-    //         dbg!(p);
-    //     }
-    // }
+        for (p, v) in ecs.iter_mut::<(&mut Position, &Velocity)>().unwrap() {
+            p.x += v.x;
+            p.y += v.y;
+        }
+
+        for p in ecs.iter_mut::<&Position>().unwrap() {
+            dbg!(p);
+        }
+    }
 }
