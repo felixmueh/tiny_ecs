@@ -157,9 +157,9 @@ impl Ecs {
             c.0.reserve(e1.len());
             for idx in e1.indices() {
                 if e1.is_full(idx.idx) {
-                    c.push_hole(idx.gen);
-                } else {
                     c.push(None, idx.gen);
+                } else {
+                    c.push_hole(idx.gen);
                 }
             }
         }
