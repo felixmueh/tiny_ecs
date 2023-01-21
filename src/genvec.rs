@@ -71,38 +71,48 @@ impl<T> GenVec<T> {
         self.0.push(GenEntry { val: None, gen })
     }
 
-    pub fn get(&self, idx: GenIndex) -> Option<&T> {
-        let GenEntry { val, gen } = self.0.get(idx.idx)?;
+    pub fn get(&self, idx: GenIndex) -> Result<&T> {
+        let GenEntry { val, gen } = self.0.get(idx.idx).ok_or(format!(
+            "Index out of bounds: '{}' for lentgh '{}'",
+            idx.idx,
+            self.0.len()
+        ))?;
         if *gen == idx.gen {
-            val.as_ref()
+            Ok(val.as_ref().ok_or("Trying to access a freed slot.")?)
         } else {
-            None
+            Err(Error::Generic(format!(
+                "Invalid Generation expected: {} but got {}",
+                gen, idx.gen
+            )))
         }
     }
 
-    pub fn get_mut(&mut self, idx: GenIndex) -> Option<&mut T> {
-        let GenEntry { val, gen } = self.0.get_mut(idx.idx)?;
+    pub fn get_mut(&mut self, idx: GenIndex) -> Result<&mut T> {
+        let len = self.0.len();
+        let GenEntry { val, gen } = self.0.get_mut(idx.idx).ok_or(format!(
+            "Index out of bounds: '{}' for lentgh '{}'",
+            idx.idx, len
+        ))?;
         if *gen == idx.gen {
-            val.as_mut()
+            Ok(val.as_mut().ok_or("Trying to access a freed slot.")?)
         } else {
-            None
+            Err(Error::Generic(format!(
+                "Invalid Generation expected: {} but got {}",
+                gen, idx.gen
+            )))
         }
     }
 
     /// Set only works if there is a valid entry at idx already.
     pub fn set(&mut self, idx: GenIndex, value: T) -> Result<()> {
-        if let Some(val) = self.get_mut(idx) {
-            *val = value;
-            Ok(())
-        } else {
-            Err(Error::Generic(format!("Invalid index: '{}'.", idx)))
-        }
+        *self.get_mut(idx)? = value;
+        Ok(())
     }
 
     /// Repopulate with val if slot is free.
     pub fn repop(&mut self, idx: GenIndex, value: T) -> Result<()> {
-        let Some(GenEntry { val, .. }) = self.0.get_mut(idx.idx) else {
-            return Err(Error::Generic(format!("Invlid index: '{}'.", idx)));
+        let Some(GenEntry { val, gen }) = self.0.get_mut(idx.idx) else {
+            return Err(Error::Generic(format!("Index out of bounds: '{}'.", idx)));
         };
         if val.is_some() {
             return Err(Error::Generic(format!(
@@ -111,6 +121,7 @@ impl<T> GenVec<T> {
             )));
         }
         *val = Some(value);
+        *gen += 1;
         Ok(())
     }
 

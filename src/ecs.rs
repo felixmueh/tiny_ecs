@@ -11,6 +11,7 @@ use std::{
     collections::HashMap,
 };
 
+// Don't implement Component for Index. It would allow setting the index.
 pub type Index = GenIndex;
 pub type Storage<T> = GenVec<Option<T>>;
 
@@ -23,7 +24,7 @@ pub trait AnyComponent: Any {
     // append new entity
     fn push_new(&mut self, gen: u64);
     // repopulate freed entitiy
-    fn repop(&mut self, idx: Index) -> Result<()>;
+    fn repopulate(&mut self, idx: Index) -> Result<()>;
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn len(&self) -> usize;
@@ -67,7 +68,7 @@ impl<T: 'static> AnyComponent for Storage<T> {
         self.free(idx)
     }
 
-    fn repop(&mut self, idx: Index) -> Result<()> {
+    fn repopulate(&mut self, idx: Index) -> Result<()> {
         self.repop(idx, None)
     }
 }
@@ -101,8 +102,8 @@ impl AnyComponent for Box<dyn AnyComponent> {
         self.as_mut().remove_entity(idx)
     }
 
-    fn repop(&mut self, idx: Index) -> Result<()> {
-        self.as_mut().repop(idx)
+    fn repopulate(&mut self, idx: Index) -> Result<()> {
+        self.as_mut().repopulate(idx)
     }
 }
 
@@ -146,10 +147,12 @@ impl Default for Ecs {
 
 impl Ecs {
     pub fn new() -> Self {
-        Ecs {
+        let mut ecs = Ecs {
             components: HashMap::new(),
             free_list: vec![],
-        }
+        };
+        ecs.add_component::<Index>();
+        ecs
     }
 
     pub fn add_component<T: 'static>(&mut self) {
@@ -190,14 +193,11 @@ impl Ecs {
     }
 
     /// Adds a new entity without any components
-    pub fn add_entity(&mut self) -> Index {
-        assert!(
-            !self.components.is_empty(),
-            "Can't add entity if there is no component."
-        );
-        if let Some(next_free) = self.free_list.pop() {
+    pub fn new_empty_entity(&mut self) -> Index {
+        assert!(!self.components.is_empty());
+        let idx = if let Some(next_free) = self.free_list.pop() {
             for v in self.components.values_mut() {
-                v.repop(next_free).unwrap();
+                v.repopulate(next_free).unwrap();
             }
             next_free
         } else {
@@ -208,10 +208,15 @@ impl Ecs {
                 idx: self.components.values().next().unwrap().len() - 1,
                 gen: 0,
             }
-        }
+        };
+        let idx_component = self.get_component_mut::<Index>().unwrap();
+        idx_component.set(idx, Some(idx)).unwrap();
+        idx
     }
 
-    pub fn set_entity<T>(&mut self, idx: Index, value: T) -> Result<()>
+    /// Sets the entities components to the values. This function will also create new components
+    /// if necessary.
+    pub fn set_entity_create_components<T>(&mut self, idx: Index, value: T) -> Result<()>
     where
         T: Set<T> + 'static,
     {
@@ -249,39 +254,41 @@ mod tests {
 
     use super::*;
 
+    #[derive(Debug, PartialEq, Eq, Component)]
+    struct HP(u32);
+
+    #[derive(Debug, PartialEq, Eq, Component)]
+    struct IS(bool);
+
     #[test]
     fn test_set_entity() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i32>();
-        let idx = ecs.add_entity();
-        ecs.set_entity(idx, (42, true)).unwrap();
-        assert_eq!(
-            ecs.get_entity_mut::<(&i32, &bool)>(idx).unwrap(),
-            (&42, &true)
-        );
+        let idx = ecs.new_empty_entity();
+        ecs.set_entity_create_components(idx, (HP(42), IS(true)))
+            .unwrap();
+        assert_eq!(*ecs.get_entity_mut::<(&HP, &IS)>(idx).unwrap().0, HP(42));
+        assert_eq!(*ecs.get_entity_mut::<(&HP, &IS)>(idx).unwrap().1, IS(true));
     }
 
     #[test]
     fn better_ergonomics() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        ecs.add_component::<bool>();
-        let i1 = ecs.add_entity();
-        let i2 = ecs.add_entity();
-        ecs.set_entity(i1, true).unwrap();
-        ecs.set_entity(i1, 5_i64).unwrap();
-        ecs.set_entity(i2, false).unwrap();
-        ecs.set_entity(i2, 5_i64).unwrap();
+        let i1 = ecs.new_empty_entity();
+        let i2 = ecs.new_empty_entity();
+        ecs.set_entity_create_components(i1, IS(true)).unwrap();
+        ecs.set_entity_create_components(i1, HP(5)).unwrap();
+        ecs.set_entity_create_components(i2, IS(false)).unwrap();
+        ecs.set_entity_create_components(i2, HP(5)).unwrap();
 
-        for (p, b) in ecs.iter_mut::<(&mut i64, &bool)>().unwrap() {
-            if *b {
-                *p += 1
+        for (p, b) in ecs.iter_mut::<(&mut HP, &IS)>().unwrap() {
+            if b.0 {
+                p.0 += 1
             }
         }
 
-        let mut iter = ecs.iter_mut::<&i64>().unwrap();
-        assert_eq!(*(iter.next().unwrap()), 6_i64);
-        assert_eq!(*(iter.next().unwrap()), 5_i64);
+        let mut iter = ecs.iter_mut::<&HP>().unwrap();
+        assert_eq!(*(iter.next().unwrap()), HP(6));
+        assert_eq!(*(iter.next().unwrap()), HP(5));
     }
 
     #[test]
@@ -294,109 +301,117 @@ mod tests {
     #[test]
     fn add_entity() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        let idx = ecs.add_entity();
+        ecs.add_component::<HP>();
+        let idx = ecs.new_empty_entity();
         assert!(ecs
-            .get_component::<i64>()
+            .get_component::<HP>()
             .unwrap()
             .get(idx)
             .unwrap()
             .is_none());
-        ecs.set_entity(idx, 5_i64).unwrap();
+        ecs.set_entity_create_components(idx, HP(5)).unwrap();
         assert_eq!(
-            ecs.get_component::<i64>()
+            *ecs.get_component::<HP>()
                 .unwrap()
                 .get(idx)
                 .unwrap()
+                .as_ref()
                 .unwrap(),
-            5_i64
+            HP(5)
         );
     }
 
     #[test]
     fn remove_entity() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        let idx = ecs.add_entity();
-        ecs.set_entity(idx, 5_i64).unwrap();
+        ecs.add_component::<HP>();
+        let idx = ecs.new_empty_entity();
+        ecs.set_entity_create_components(idx, HP(5)).unwrap();
         assert!(ecs
-            .get_component::<i64>()
+            .get_component::<HP>()
             .unwrap()
             .get(idx)
             .unwrap()
             .is_some());
         ecs.remove_entity(idx).unwrap();
-        assert!(ecs.get_component::<i64>().unwrap().get(idx).is_none());
+        assert!(ecs.get_component::<HP>().unwrap().get(idx).is_err());
     }
 
     #[test]
     fn insert_after_remove_entity() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        let idx = ecs.add_entity();
+        ecs.add_component::<HP>();
+        let idx = ecs.new_empty_entity();
         ecs.remove_entity(idx).unwrap();
-        let idx2 = ecs.add_entity();
+        let idx2 = ecs.new_empty_entity();
         assert_eq!(idx.next(), idx2);
     }
 
     #[test]
     fn iter_component() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        let _ = ecs.add_entity();
-        let idx2 = ecs.add_entity();
-        ecs.set_entity(idx2, 5_i64).unwrap();
+        ecs.add_component::<HP>();
+        let _ = ecs.new_empty_entity();
+        let idx2 = ecs.new_empty_entity();
+        ecs.set_entity_create_components(idx2, HP(5)).unwrap();
         assert_eq!(
-            ecs.get_component::<i64>()
+            *ecs.get_component::<HP>()
                 .unwrap()
                 .iter()
                 .nth(1)
                 .unwrap()
+                .as_ref()
                 .unwrap(),
-            5_i64
+            HP(5)
         );
         assert_eq!(
-            *ecs.get_component::<i64>()
+            *ecs.get_component::<HP>()
                 .unwrap()
                 .iter_valid()
                 .next()
                 .unwrap(),
-            5_i64
+            HP(5)
         );
     }
 
     #[test]
     fn iter_component_mut() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        let _ = ecs.add_entity();
-        let idx2 = ecs.add_entity();
-        ecs.set_entity(idx2, 5_i64).unwrap();
-        *ecs.get_component_mut::<i64>()
+        ecs.add_component::<HP>();
+        let _ = ecs.new_empty_entity();
+        let idx2 = ecs.new_empty_entity();
+        ecs.set_entity_create_components(idx2, HP(5)).unwrap();
+        *ecs.get_component_mut::<HP>()
             .unwrap()
             .iter_valid_mut()
             .next()
-            .unwrap() = 7;
+            .unwrap() = HP(7);
         assert_eq!(
-            *ecs.get_component::<i64>()
+            *ecs.get_component::<HP>()
                 .unwrap()
                 .iter_valid()
                 .next()
                 .unwrap(),
-            7_i64
+            HP(7)
         );
     }
 
     #[test]
     fn access_one_entity() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        let i = ecs.add_entity();
-        let v = ecs.get_entity_mut::<Option<&mut i64>>(i).unwrap();
-        v.replace(5_i64);
+        ecs.add_component::<HP>();
+        let i = ecs.new_empty_entity();
+        let v = ecs.get_entity_mut::<Option<&mut HP>>(i).unwrap();
+        v.replace(HP(5));
         assert_eq!(
-            ecs.get_component::<i64>().unwrap().get(i).unwrap().unwrap(),
-            5_i64
+            *(ecs
+                .get_component::<HP>()
+                .unwrap()
+                .get(i)
+                .unwrap()
+                .as_ref()
+                .unwrap()),
+            HP(5)
         );
     }
 
@@ -405,7 +420,7 @@ mod tests {
         let mut ecs = Ecs::new();
         ecs.add_component::<i64>();
         ecs.add_component::<bool>();
-        let i = ecs.add_entity();
+        let i = ecs.new_empty_entity();
         let (v, b) = ecs
             .get_entity_mut::<(Option<&mut i64>, Option<&mut bool>)>(i)
             .unwrap();
@@ -441,16 +456,18 @@ mod tests {
         ecs.add_component::<Position>();
         ecs.add_component::<Velocity>();
 
-        let _ = ecs.add_entity();
-        let i2 = ecs.add_entity();
-        let i3 = ecs.add_entity();
+        let _ = ecs.new_empty_entity();
+        let i2 = ecs.new_empty_entity();
+        let i3 = ecs.new_empty_entity();
 
         for e in ecs.get_component_mut::<Position>().unwrap().iter_mut() {
             *e = Some(Position { x: 0, y: 0 });
         }
 
-        ecs.set_entity(i2, Velocity { x: 1, y: 1 }).unwrap();
-        ecs.set_entity(i3, Velocity { x: -1, y: 1 }).unwrap();
+        ecs.set_entity_create_components(i2, Velocity { x: 1, y: 1 })
+            .unwrap();
+        ecs.set_entity_create_components(i3, Velocity { x: -1, y: 1 })
+            .unwrap();
 
         for (p, v) in ecs.iter_mut::<(&mut Position, &Velocity)>().unwrap() {
             p.x += v.x;

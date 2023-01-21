@@ -30,7 +30,7 @@ unsafe impl<T: 'static> Query<&T> for &T {
     fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
         let component = ecs.get_component_mut::<T>()?;
         let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
-        component.get(idx)?.as_ref()
+        component.get(idx).ok()?.as_ref()
     }
 }
 
@@ -64,7 +64,7 @@ unsafe impl<T: 'static> Query<&mut T> for &mut T {
     fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
         let component = ecs.get_component_mut::<T>().unwrap();
         let component = component.as_any_mut().downcast_mut::<Storage<T>>().unwrap();
-        component.get_mut(idx)?.as_mut()
+        component.get_mut(idx).ok()?.as_mut()
     }
 }
 
@@ -82,7 +82,7 @@ unsafe impl<T: 'static> Query<Option<&T>> for Option<&T> {
     fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
         let component = ecs.get_component_mut::<T>()?;
         let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
-        component.get(idx)
+        component.get(idx).ok()
     }
 }
 
@@ -100,7 +100,7 @@ unsafe impl<T: 'static> Query<Option<&mut T>> for Option<&mut T> {
     fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
         let component = ecs.get_component_mut::<T>()?;
         let component = component.as_any_mut().downcast_mut::<Storage<T>>().unwrap();
-        component.get_mut(idx)
+        component.get_mut(idx).ok()
     }
 }
 
@@ -150,27 +150,29 @@ impl_traits! { a A, b B, c C, d D, e E, f F, g G, h H }
 
 #[cfg(test)]
 mod tests {
+    use component_derive::Component;
+
     use super::*;
 
-    impl Component for u64 {}
-    impl Component for i64 {}
-    impl Component for u32 {}
-    impl Component for i32 {}
-    impl Component for bool {}
+    #[derive(Debug, PartialEq, Eq, Component)]
+    struct HP(u32);
+
+    #[derive(Debug, PartialEq, Eq, Component)]
+    struct IS(bool);
 
     #[test]
     fn test_set_value() {
         let mut ecs = Ecs::new();
         ecs.add_component::<u64>();
-        let index = ecs.add_entity();
-        <(u64, bool)>::set_or_create(&mut ecs, index, (42, true)).unwrap();
+        let index = ecs.new_empty_entity();
+        <(HP, IS)>::set_or_create(&mut ecs, index, (HP(42), IS(true))).unwrap();
     }
 
     #[test]
     fn test_get_optional_component() {
         let mut ecs = Ecs::new();
         ecs.add_component::<i64>();
-        let i1 = ecs.add_entity();
+        let i1 = ecs.new_empty_entity();
 
         let opt = <Option<&mut i64>>::get_mut(&mut ecs, i1).unwrap();
         opt.replace(42);
@@ -180,19 +182,19 @@ mod tests {
     #[test]
     fn test_basic_teration() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        let i1 = ecs.add_entity();
-        let i2 = ecs.add_entity();
-        ecs.set_entity(i1, 4_i64).unwrap();
-        ecs.set_entity(i2, 5_i64).unwrap();
+        ecs.add_component::<HP>();
+        let i1 = ecs.new_empty_entity();
+        let i2 = ecs.new_empty_entity();
+        ecs.set_entity_create_components(i1, HP(4)).unwrap();
+        ecs.set_entity_create_components(i2, HP(5)).unwrap();
 
-        for p in <&mut i64>::query_mut(&mut ecs).unwrap().flatten() {
-            *p += 1;
+        for p in <&mut HP>::query_mut(&mut ecs).unwrap().flatten() {
+            p.0 += 1;
         }
 
-        let mut iter = <&i64>::query_mut(&mut ecs).unwrap();
-        assert_eq!(*(iter.next().unwrap().unwrap()), 5_i64);
-        assert_eq!(*(iter.next().unwrap().unwrap()), 6_i64);
+        let mut iter = <&HP>::query_mut(&mut ecs).unwrap();
+        assert_eq!(*(iter.next().unwrap().unwrap()), HP(5));
+        assert_eq!(*(iter.next().unwrap().unwrap()), HP(6));
     }
 
     #[test]
@@ -200,21 +202,21 @@ mod tests {
         let mut ecs = Ecs::new();
         ecs.add_component::<i64>();
         ecs.add_component::<bool>();
-        let i1 = ecs.add_entity();
-        let i2 = ecs.add_entity();
-        ecs.set_entity(i1, true).unwrap();
-        ecs.set_entity(i1, 5_i64).unwrap();
-        ecs.set_entity(i2, false).unwrap();
-        ecs.set_entity(i2, 5_i64).unwrap();
+        let i1 = ecs.new_empty_entity();
+        let i2 = ecs.new_empty_entity();
+        ecs.set_entity_create_components(i1, IS(true)).unwrap();
+        ecs.set_entity_create_components(i1, HP(5)).unwrap();
+        ecs.set_entity_create_components(i2, IS(false)).unwrap();
+        ecs.set_entity_create_components(i2, HP(5)).unwrap();
 
-        for (p, b) in <(&mut i64, &bool)>::query_mut(&mut ecs).unwrap().flatten() {
-            if *b {
-                *p += 1
+        for (p, b) in <(&mut HP, &IS)>::query_mut(&mut ecs).unwrap().flatten() {
+            if b.0 {
+                p.0 += 1
             }
         }
 
-        let mut iter = <&i64>::query_mut(&mut ecs).unwrap();
-        assert_eq!(*(iter.next().unwrap().unwrap()), 6_i64);
-        assert_eq!(*(iter.next().unwrap().unwrap()), 5_i64);
+        let mut iter = <&HP>::query_mut(&mut ecs).unwrap();
+        assert_eq!(*(iter.next().unwrap().unwrap()), HP(6));
+        assert_eq!(*(iter.next().unwrap().unwrap()), HP(5));
     }
 }

@@ -9,3 +9,9 @@ impl From<&str> for Error {
         Error::Generic(s.to_string())
     }
 }
+
+impl From<String> for Error {
+    fn from(s: String) -> Self {
+        Error::Generic(s)
+    }
+}
