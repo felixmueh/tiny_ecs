@@ -3,9 +3,18 @@
 version = 3
 
 [[package]]
+name = "component-derive"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "df_clone"
 version = "0.1.0"
 dependencies = [
+ "component-derive",
  "itertools",
  "thiserror",
 ]

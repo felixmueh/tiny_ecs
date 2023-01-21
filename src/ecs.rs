@@ -18,6 +18,7 @@ pub trait Component {}
 
 // Any components are used dynamically store the storage types and still implement
 // some methods on them.
+#[allow(clippy::len_without_is_empty)]
 pub trait AnyComponent: Any {
     // append new entity
     fn push_new(&mut self, gen: u64);
@@ -27,7 +28,7 @@ pub trait AnyComponent: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn len(&self) -> usize;
     fn indices<'a>(&'a self) -> Box<dyn Iterator<Item = GenIndex> + 'a>;
-    fn is_full(&self, idx: usize) -> bool;
+    fn is_used(&self, idx: usize) -> bool;
     fn remove_entity(&mut self, idx: Index) -> Result<()>;
 }
 
@@ -58,7 +59,7 @@ impl<T: 'static> AnyComponent for Storage<T> {
         )
     }
 
-    fn is_full(&self, idx: usize) -> bool {
+    fn is_used(&self, idx: usize) -> bool {
         self.0[idx].val.is_some()
     }
 
@@ -92,8 +93,8 @@ impl AnyComponent for Box<dyn AnyComponent> {
         self.as_ref().indices()
     }
 
-    fn is_full(&self, idx: usize) -> bool {
-        self.as_ref().is_full(idx)
+    fn is_used(&self, idx: usize) -> bool {
+        self.as_ref().is_used(idx)
     }
 
     fn remove_entity(&mut self, idx: Index) -> Result<()> {
@@ -158,7 +159,7 @@ impl Ecs {
             let e1 = self.components.values().next().unwrap().as_ref();
             c.0.reserve(e1.len());
             for idx in e1.indices() {
-                if e1.is_full(idx.idx) {
+                if e1.is_used(idx.idx) {
                     c.push(None, idx.gen);
                 } else {
                     c.push_hole(idx.gen);
@@ -244,6 +245,8 @@ impl Ecs {
 
 #[cfg(test)]
 mod tests {
+    use component_derive::Component;
+
     use super::*;
 
     #[test]
@@ -412,32 +415,27 @@ mod tests {
             ecs.get_component::<i64>().unwrap().get(i).unwrap().unwrap(),
             5_i64
         );
-        assert_eq!(
-            ecs.get_component::<bool>()
-                .unwrap()
-                .get(i)
-                .unwrap()
-                .unwrap(),
-            true
-        );
+        assert!(ecs
+            .get_component::<bool>()
+            .unwrap()
+            .get(i)
+            .unwrap()
+            .unwrap(),);
     }
 
     #[test]
     fn complicated_example() {
-        #[derive(Debug)]
+        #[derive(Debug, Component)]
         struct Position {
             x: i64,
             y: i64,
         }
 
-        #[derive(Debug)]
+        #[derive(Debug, Component)]
         struct Velocity {
             x: i64,
             y: i64,
         }
-
-        impl Component for Position {}
-        impl Component for Velocity {}
 
         let mut ecs = Ecs::new();
         ecs.add_component::<Position>();
