@@ -15,6 +15,8 @@ use std::{
 pub type Index = GenIndex;
 pub type Storage<T> = GenVec<Option<T>>;
 
+// needs to be implemented on potential components to allow setting them
+// (Otherwise Set<T> would need a blanket implementation which would make it impossible to properly handle tuples)
 pub trait Component {}
 
 // Any components are used dynamically store the storage types and still implement
