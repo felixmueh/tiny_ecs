@@ -151,11 +151,19 @@ impl Ecs {
             components: HashMap::new(),
             free_list: vec![],
         };
-        ecs.add_component::<Index>();
+        ecs.add_component_inner::<Index>();
         ecs
     }
 
-    pub fn add_component<T: 'static>(&mut self) {
+    // only add components that are allowed
+    pub fn add_component<T: 'static>(&mut self)
+    where
+        T: Component,
+    {
+        self.add_component_inner::<T>();
+    }
+
+    fn add_component_inner<T: 'static>(&mut self) {
         let mut c = Storage::<T>::default();
         if !self.components.is_empty() {
             // Fill the component with the correct generations and slot holes of the other components
@@ -190,6 +198,15 @@ impl Ecs {
                 .downcast_mut()
                 .unwrap(),
         )
+    }
+
+    pub fn new_entitiy<T>(&mut self, value: T) -> Result<Index>
+    where
+        T: Set<T> + 'static,
+    {
+        let idx = self.new_empty_entity();
+        self.set_entity(idx, value)?;
+        Ok(idx)
     }
 
     pub fn new_entity_create_components<T>(&mut self, value: T) -> Result<Index>
@@ -277,6 +294,20 @@ mod tests {
     struct IS(bool);
 
     #[test]
+    fn iterate_over_option_entities() {
+        let mut ecs = Ecs::new();
+        ecs.new_entity_create_components((HP(1), IS(true))).unwrap();
+        ecs.new_entity_create_components(HP(1)).unwrap();
+        let mut iter = ecs.iter_mut::<(&HP, Option<&IS>)>().unwrap();
+        let e1 = iter.next().unwrap();
+        assert_eq!(*e1.0, HP(1));
+        assert_eq!(*(e1.1), Some(IS(true)));
+        let e2 = iter.next().unwrap();
+        assert_eq!(*e2.0, HP(1));
+        assert_eq!(*e2.1, None);
+    }
+
+    #[test]
     fn test_normal_set() {
         let mut ecs = Ecs::new();
         let i = ecs.new_entity_create_components(HP(0)).unwrap();
@@ -341,8 +372,8 @@ mod tests {
     #[test]
     fn add_component() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        ecs.get_component::<i64>();
+        ecs.add_component::<HP>();
+        ecs.get_component::<HP>();
     }
 
     #[test]
@@ -465,24 +496,32 @@ mod tests {
     #[test]
     fn access_one_entity_multiple_fields() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        ecs.add_component::<bool>();
+        ecs.add_component::<HP>();
+        ecs.add_component::<IS>();
         let i = ecs.new_empty_entity();
         let (v, b) = ecs
-            .get_entity_mut::<(Option<&mut i64>, Option<&mut bool>)>(i)
+            .get_entity_mut::<(Option<&mut HP>, Option<&mut IS>)>(i)
             .unwrap();
-        v.replace(5_i64);
-        b.replace(true);
+        v.replace(HP(5));
+        b.replace(IS(true));
         assert_eq!(
-            ecs.get_component::<i64>().unwrap().get(i).unwrap().unwrap(),
-            5_i64
+            *ecs.get_component::<HP>()
+                .unwrap()
+                .get(i)
+                .unwrap()
+                .as_ref()
+                .unwrap(),
+            HP(5)
         );
-        assert!(ecs
-            .get_component::<bool>()
-            .unwrap()
-            .get(i)
-            .unwrap()
-            .unwrap(),);
+        assert!(
+            ecs.get_component::<IS>()
+                .unwrap()
+                .get(i)
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .0
+        );
     }
 
     #[test]

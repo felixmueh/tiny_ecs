@@ -174,7 +174,6 @@ mod tests {
     #[test]
     fn test_set_value() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<u64>();
         let index = ecs.new_empty_entity();
         <(HP, IS)>::set_or_create(&mut ecs, index, (HP(42), IS(true))).unwrap();
     }
@@ -182,12 +181,12 @@ mod tests {
     #[test]
     fn test_get_optional_component() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
+        ecs.add_component::<HP>();
         let i1 = ecs.new_empty_entity();
 
-        let opt = <Option<&mut i64>>::get_mut(&mut ecs, i1).unwrap();
-        opt.replace(42);
-        assert_eq!(42, *<&i64>::get_mut(&mut ecs, i1).unwrap());
+        let opt = <Option<&mut HP>>::get_mut(&mut ecs, i1).unwrap();
+        opt.replace(HP(42));
+        assert_eq!(HP(42), *<&HP>::get_mut(&mut ecs, i1).unwrap());
     }
 
     #[test]
@@ -211,8 +210,6 @@ mod tests {
     #[test]
     fn test_tuple_teration() {
         let mut ecs = Ecs::new();
-        ecs.add_component::<i64>();
-        ecs.add_component::<bool>();
         let i1 = ecs.new_empty_entity();
         let i2 = ecs.new_empty_entity();
         ecs.set_entity_create_components(i1, IS(true)).unwrap();
