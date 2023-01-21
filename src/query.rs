@@ -2,12 +2,12 @@ use crate::{prelude::*, Component};
 use crate::{AnyComponent, Ecs, Index, Storage};
 use itertools::multizip;
 
-pub unsafe trait Set<T> {
+pub trait Set<T> {
     fn set(ecs: &mut Ecs, index: Index, value: T) -> Result<()>;
     fn set_or_create(ecs: &mut Ecs, index: Index, value: T) -> Result<()>;
 }
 
-pub unsafe trait Query<T> {
+pub trait Query<T> {
     type Item<'w>;
 
     fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>>;
@@ -21,7 +21,7 @@ pub unsafe trait Query<T> {
     fn get(ecs: &Ecs, idx: Index) -> Option<Self::Item<'_>>;
 }
 
-unsafe impl<T: 'static> Query<&T> for &T {
+impl<T: 'static> Query<&T> for &T {
     type Item<'w> = &'w T;
 
     fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
@@ -47,7 +47,7 @@ unsafe impl<T: 'static> Query<&T> for &T {
     }
 }
 
-unsafe impl<T: 'static> Set<T> for T
+impl<T: 'static> Set<T> for T
 where
     T: Component,
 {
@@ -68,7 +68,7 @@ where
     }
 }
 
-unsafe impl<T: 'static> Query<&mut T> for &mut T {
+impl<T: 'static> Query<&mut T> for &mut T {
     type Item<'w> = &'w mut T;
 
     fn query<'w>(_ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
@@ -94,7 +94,7 @@ unsafe impl<T: 'static> Query<&mut T> for &mut T {
     }
 }
 
-unsafe impl<T: 'static> Query<Option<&T>> for Option<&T> {
+impl<T: 'static> Query<Option<&T>> for Option<&T> {
     type Item<'w> = &'w Option<T>;
 
     fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
@@ -120,7 +120,7 @@ unsafe impl<T: 'static> Query<Option<&T>> for Option<&T> {
     }
 }
 
-unsafe impl<T: 'static> Query<Option<&mut T>> for Option<&mut T> {
+impl<T: 'static> Query<Option<&mut T>> for Option<&mut T> {
     type Item<'w> = &'w mut Option<T>;
 
     fn query<'w>(_ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
@@ -157,7 +157,7 @@ macro_rules! impl_traits {
 
 macro_rules! impl_query {
     ($($lc:tt $t:tt),+) => {
-        unsafe impl<$($t: Query<$t> + 'static),+> Query<($($t),+)> for ($($t),+) {
+        impl<$($t: Query<$t> + 'static),+> Query<($($t),+)> for ($($t),+) {
             type Item<'w> = ($($t::Item<'w>),+);
 
             fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
@@ -190,7 +190,7 @@ macro_rules! impl_query {
 
 macro_rules! impl_set {
     ($($lc:tt $t:tt),+) => {
-        unsafe impl<$($t: Set<$t> + 'static),+> Set<($($t),+)> for ($($t),+)
+        impl<$($t: Set<$t> + 'static),+> Set<($($t),+)> for ($($t),+)
         {
             fn set(ecs: &mut Ecs, index: Index, value: ($($t),+)) -> Result<()> {
                 let ($($lc),+) = value;
@@ -219,6 +219,15 @@ mod tests {
 
     #[derive(Debug, PartialEq, Eq, Component)]
     struct IS(bool);
+
+    #[test]
+    #[should_panic]
+    fn test_panic_on_query_same_type_twice() {
+        let mut ecs = Ecs::new();
+        let index = ecs.new_empty_entity();
+        <(HP, IS)>::set_or_create(&mut ecs, index, (HP(42), IS(true))).unwrap();
+        <(&mut HP, &HP)>::query_mut(&mut ecs);
+    }
 
     #[test]
     fn test_set_value() {
