@@ -192,6 +192,15 @@ impl Ecs {
         )
     }
 
+    pub fn new_entity_create_components<T>(&mut self, value: T) -> Result<Index>
+    where
+        T: Set<T> + 'static,
+    {
+        let idx = self.new_empty_entity();
+        self.set_entity_create_components(idx, value)?;
+        Ok(idx)
+    }
+
     /// Adds a new entity without any components
     pub fn new_empty_entity(&mut self) -> Index {
         assert!(!self.components.is_empty());
@@ -259,6 +268,28 @@ mod tests {
 
     #[derive(Debug, PartialEq, Eq, Component)]
     struct IS(bool);
+
+    #[test]
+    fn test_iterate_entity_indices() {
+        let mut ecs = Ecs::new();
+        ecs.new_entity_create_components(HP(0)).unwrap();
+        let idx1 = ecs.new_entity_create_components(HP(1)).unwrap();
+        ecs.new_entity_create_components(HP(2)).unwrap();
+
+        for (idx, hp) in ecs.iter_mut::<(&Index, &HP)>().unwrap() {
+            assert_eq!(hp.0 as usize, idx.idx);
+            assert_eq!(idx.gen, 0);
+        }
+
+        ecs.remove_entity(idx1).unwrap();
+        let idx1 = ecs.new_entity_create_components(HP(1)).unwrap();
+
+        for (idx, hp) in ecs.iter_mut::<(&Index, &HP)>().unwrap() {
+            assert_eq!(hp.0 as usize, idx.idx);
+        }
+
+        assert_eq!(ecs.get_entity_mut::<&Index>(idx1).unwrap().gen, 1);
+    }
 
     #[test]
     fn test_set_entity() {
