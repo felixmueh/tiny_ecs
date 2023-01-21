@@ -1,14 +1,19 @@
+use std::any::TypeId;
+
 use crate::{prelude::*, Component};
 use crate::{AnyComponent, Ecs, Index, Storage};
 use itertools::multizip;
 
 pub trait Set<T> {
+    fn get_type_ids() -> Vec<TypeId>;
     fn set(ecs: &mut Ecs, index: Index, value: T) -> Result<()>;
     fn set_or_create(ecs: &mut Ecs, index: Index, value: T) -> Result<()>;
 }
 
 pub trait Query<T> {
     type Item<'w>;
+
+    fn get_type_ids() -> Vec<TypeId>;
 
     fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>>;
 
@@ -23,6 +28,10 @@ pub trait Query<T> {
 
 impl<T: 'static> Query<&T> for &T {
     type Item<'w> = &'w T;
+
+    fn get_type_ids() -> Vec<TypeId> {
+        vec![TypeId::of::<T>()]
+    }
 
     fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
         let component = ecs.get_component::<T>()?;
@@ -51,6 +60,9 @@ impl<T: 'static> Set<T> for T
 where
     T: Component,
 {
+    fn get_type_ids() -> Vec<TypeId> {
+        vec![TypeId::of::<T>()]
+    }
     fn set(ecs: &mut Ecs, index: Index, value: T) -> Result<()> {
         let component = ecs.get_component_mut::<T>().ok_or("Can't find component")?;
         component.set(index, Some(value))
@@ -70,6 +82,10 @@ where
 
 impl<T: 'static> Query<&mut T> for &mut T {
     type Item<'w> = &'w mut T;
+
+    fn get_type_ids() -> Vec<TypeId> {
+        vec![TypeId::of::<T>()]
+    }
 
     fn query<'w>(_ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
         panic!("Can't get mutable reference from immutable Ecs use _mut function instead.")
@@ -97,6 +113,10 @@ impl<T: 'static> Query<&mut T> for &mut T {
 impl<T: 'static> Query<Option<&T>> for Option<&T> {
     type Item<'w> = &'w Option<T>;
 
+    fn get_type_ids() -> Vec<TypeId> {
+        vec![TypeId::of::<T>()]
+    }
+
     fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
         let component = ecs.get_component::<T>().unwrap();
         let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
@@ -122,6 +142,10 @@ impl<T: 'static> Query<Option<&T>> for Option<&T> {
 
 impl<T: 'static> Query<Option<&mut T>> for Option<&mut T> {
     type Item<'w> = &'w mut Option<T>;
+
+    fn get_type_ids() -> Vec<TypeId> {
+        vec![TypeId::of::<T>()]
+    }
 
     fn query<'w>(_ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
         panic!("Can't get mutable reference from immutable Ecs use _mut function instead.")
@@ -155,10 +179,28 @@ macro_rules! impl_traits {
     };
 }
 
+fn all_different(types: &[TypeId]) -> bool {
+    if types.len() <= 1 {
+        return true;
+    }
+    for i in 0..(types.len() - 1) {
+        for j in i + 1..types.len() {
+            if types[i] == types[j] {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 macro_rules! impl_query {
     ($($lc:tt $t:tt),+) => {
         impl<$($t: Query<$t> + 'static),+> Query<($($t),+)> for ($($t),+) {
             type Item<'w> = ($($t::Item<'w>),+);
+
+            fn get_type_ids() -> Vec<TypeId> {
+                [$(<$t>::get_type_ids()),+].into_iter().flatten().collect()
+            }
 
             fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
                 Some(Box::new(multizip(
@@ -167,6 +209,7 @@ macro_rules! impl_query {
             }
 
             fn query_mut<'w>(ecs: &'w mut Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
+                assert!(all_different(&Self::get_type_ids()));
                 Some(Box::new(multizip(
                     ($($t::query_mut(unsafe { &mut *(ecs as *mut Ecs) })?),+)
                 ).map(|($($lc),+)| Some(($($lc?),+)))))
@@ -179,6 +222,7 @@ macro_rules! impl_query {
             }
 
             fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
+                assert!(all_different(&Self::get_type_ids()));
                 Some((
                     ($($t::get_mut(unsafe { &mut *(ecs as *mut Ecs) }, idx)?),+)
                 ))
@@ -192,12 +236,19 @@ macro_rules! impl_set {
     ($($lc:tt $t:tt),+) => {
         impl<$($t: Set<$t> + 'static),+> Set<($($t),+)> for ($($t),+)
         {
+            fn get_type_ids() -> Vec<TypeId> {
+                [$(<$t>::get_type_ids()),+].into_iter().flatten().collect()
+            }
+
             fn set(ecs: &mut Ecs, index: Index, value: ($($t),+)) -> Result<()> {
+                assert!(all_different(&Self::get_type_ids()));
                 let ($($lc),+) = value;
                 $(<$t>::set(ecs, index, $lc)?;)+
                 Ok(())
             }
+
             fn set_or_create(ecs: &mut Ecs, index: Index, value: ($($t),+)) -> Result<()> {
+                assert!(all_different(&Self::get_type_ids()));
                 let ($($lc),+) = value;
                 $(<$t>::set_or_create(ecs, index, $lc)?;)+
                 Ok(())
@@ -219,6 +270,14 @@ mod tests {
 
     #[derive(Debug, PartialEq, Eq, Component)]
     struct IS(bool);
+
+    #[test]
+    #[should_panic]
+    fn test_set_entity_panics() {
+        let mut ecs = Ecs::new();
+        let idx = ecs.new_empty_entity();
+        <(HP, HP)>::set_or_create(&mut ecs, idx, (HP(10), HP(5))).ok();
+    }
 
     #[test]
     #[should_panic]
