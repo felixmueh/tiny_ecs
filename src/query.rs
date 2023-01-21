@@ -10,28 +10,40 @@ pub unsafe trait Set<T> {
 pub unsafe trait Query<T> {
     type Item<'w>;
 
+    fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>>;
+
     fn query_mut<'w>(
         ecs: &'w mut Ecs,
     ) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>>;
 
     fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>>;
+
+    fn get(ecs: &Ecs, idx: Index) -> Option<Self::Item<'_>>;
 }
 
 unsafe impl<T: 'static> Query<&T> for &T {
     type Item<'w> = &'w T;
 
-    fn query_mut<'w>(
-        ecs: &'w mut Ecs,
-    ) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
+    fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
         let component = ecs.get_component::<T>()?;
         let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
         Some(Box::new(component.iter().map(|x| x.as_ref())))
     }
 
-    fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
-        let component = ecs.get_component_mut::<T>()?;
+    fn query_mut<'w>(
+        ecs: &'w mut Ecs,
+    ) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
+        <&T>::query(ecs)
+    }
+
+    fn get(ecs: &Ecs, idx: Index) -> Option<Self::Item<'_>> {
+        let component = ecs.get_component::<T>()?;
         let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
         component.get(idx).ok()?.as_ref()
+    }
+
+    fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
+        <&T>::get(ecs, idx)
     }
 }
 
@@ -59,12 +71,20 @@ where
 unsafe impl<T: 'static> Query<&mut T> for &mut T {
     type Item<'w> = &'w mut T;
 
+    fn query<'w>(_ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
+        panic!("Can't get mutable reference from immutable Ecs use _mut function instead.")
+    }
+
     fn query_mut<'w>(
         ecs: &'w mut Ecs,
     ) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
         let component = ecs.get_component_mut::<T>()?;
         let component = component.as_any_mut().downcast_mut::<Storage<T>>().unwrap();
         Some(Box::new(component.iter_mut().map(|x| x.as_mut())))
+    }
+
+    fn get(_ecs: &Ecs, _idx: Index) -> Option<Self::Item<'_>> {
+        panic!("Can't get mutable reference from immutable Ecs use _mut function instead.")
     }
 
     fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
@@ -77,23 +97,35 @@ unsafe impl<T: 'static> Query<&mut T> for &mut T {
 unsafe impl<T: 'static> Query<Option<&T>> for Option<&T> {
     type Item<'w> = &'w Option<T>;
 
-    fn query_mut<'w>(
-        ecs: &'w mut Ecs,
-    ) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
+    fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
         let component = ecs.get_component::<T>().unwrap();
         let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
         Some(Box::new(component.iter().map(Some)))
     }
 
-    fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
-        let component = ecs.get_component_mut::<T>()?;
+    fn query_mut<'w>(
+        ecs: &'w mut Ecs,
+    ) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
+        <Option<&T>>::query(ecs)
+    }
+
+    fn get(ecs: &Ecs, idx: Index) -> Option<Self::Item<'_>> {
+        let component = ecs.get_component::<T>()?;
         let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
         component.get(idx).ok()
+    }
+
+    fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
+        <Option<&T>>::get(ecs, idx)
     }
 }
 
 unsafe impl<T: 'static> Query<Option<&mut T>> for Option<&mut T> {
     type Item<'w> = &'w mut Option<T>;
+
+    fn query<'w>(_ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
+        panic!("Can't get mutable reference from immutable Ecs use _mut function instead.")
+    }
 
     fn query_mut<'w>(
         ecs: &'w mut Ecs,
@@ -101,6 +133,10 @@ unsafe impl<T: 'static> Query<Option<&mut T>> for Option<&mut T> {
         let component = ecs.get_component_mut::<T>().unwrap();
         let component = component.as_any_mut().downcast_mut::<Storage<T>>().unwrap();
         Some(Box::new(component.iter_mut().map(Some)))
+    }
+
+    fn get(_ecs: &Ecs, _idx: Index) -> Option<Self::Item<'_>> {
+        panic!("Can't get mutable reference from immutable Ecs use _mut function instead.")
     }
 
     fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
@@ -124,10 +160,22 @@ macro_rules! impl_query {
         unsafe impl<$($t: Query<$t> + 'static),+> Query<($($t),+)> for ($($t),+) {
             type Item<'w> = ($($t::Item<'w>),+);
 
+            fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
+                Some(Box::new(multizip(
+                    ($($t::query(ecs)?),+)
+                ).map(|($($lc),+)| Some(($($lc?),+)))))
+            }
+
             fn query_mut<'w>(ecs: &'w mut Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
                 Some(Box::new(multizip(
                     ($($t::query_mut(unsafe { &mut *(ecs as *mut Ecs) })?),+)
                 ).map(|($($lc),+)| Some(($($lc?),+)))))
+            }
+
+            fn get(ecs: &Ecs, idx: Index) -> Option<Self::Item<'_>> {
+                Some((
+                    ($($t::get(ecs, idx)?),+)
+                ))
             }
 
             fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
@@ -135,6 +183,7 @@ macro_rules! impl_query {
                     ($($t::get_mut(unsafe { &mut *(ecs as *mut Ecs) }, idx)?),+)
                 ))
             }
+
         }
     };
 }

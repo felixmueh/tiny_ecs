@@ -256,6 +256,13 @@ impl Ecs {
         <T>::set_or_create(self, idx, value)
     }
 
+    pub fn get_entity<T>(&self, idx: Index) -> Option<<T as Query<T>>::Item<'_>>
+    where
+        T: Query<T> + 'static,
+    {
+        <T>::get(self, idx)
+    }
+
     pub fn get_entity_mut<T>(&mut self, idx: Index) -> Option<<T as Query<T>>::Item<'_>>
     where
         T: Query<T> + 'static,
@@ -269,6 +276,13 @@ impl Ecs {
         }
         self.free_list.push(idx.next());
         Ok(())
+    }
+
+    fn iter<'w, T>(&'w self) -> Option<Box<dyn Iterator<Item = <T as Query<T>>::Item<'w>> + 'w>>
+    where
+        T: Query<T> + 'static,
+    {
+        Some(Box::new(T::query(self)?.flatten()))
     }
 
     fn iter_mut<'w, T>(
@@ -481,16 +495,7 @@ mod tests {
         let i = ecs.new_empty_entity();
         let v = ecs.get_entity_mut::<Option<&mut HP>>(i).unwrap();
         v.replace(HP(5));
-        assert_eq!(
-            *(ecs
-                .get_component::<HP>()
-                .unwrap()
-                .get(i)
-                .unwrap()
-                .as_ref()
-                .unwrap()),
-            HP(5)
-        );
+        assert_eq!(*ecs.get_entity::<&HP>(i).unwrap(), HP(5));
     }
 
     #[test]
@@ -504,24 +509,8 @@ mod tests {
             .unwrap();
         v.replace(HP(5));
         b.replace(IS(true));
-        assert_eq!(
-            *ecs.get_component::<HP>()
-                .unwrap()
-                .get(i)
-                .unwrap()
-                .as_ref()
-                .unwrap(),
-            HP(5)
-        );
-        assert!(
-            ecs.get_component::<IS>()
-                .unwrap()
-                .get(i)
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .0
-        );
+        assert_eq!(*ecs.get_entity::<&HP>(i).unwrap(), HP(5));
+        assert_eq!(*ecs.get_entity::<&IS>(i).unwrap(), IS(true));
     }
 
     #[test]
