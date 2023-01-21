@@ -223,6 +223,13 @@ impl Ecs {
         idx
     }
 
+    pub fn set_entity<T>(&mut self, idx: Index, value: T) -> Result<()>
+    where
+        T: Set<T> + 'static,
+    {
+        <T>::set(self, idx, value)
+    }
+
     /// Sets the entities components to the values. This function will also create new components
     /// if necessary.
     pub fn set_entity_create_components<T>(&mut self, idx: Index, value: T) -> Result<()>
@@ -268,6 +275,15 @@ mod tests {
 
     #[derive(Debug, PartialEq, Eq, Component)]
     struct IS(bool);
+
+    #[test]
+    fn test_normal_set() {
+        let mut ecs = Ecs::new();
+        let i = ecs.new_entity_create_components(HP(0)).unwrap();
+        ecs.set_entity(i, HP(1)).unwrap();
+        assert_eq!(*ecs.get_entity_mut::<&HP>(i).unwrap(), HP(1));
+        assert!(ecs.set_entity(i, IS(true)).is_err());
+    }
 
     #[test]
     fn test_iterate_entity_indices() {

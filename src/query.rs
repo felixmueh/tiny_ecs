@@ -3,6 +3,7 @@ use crate::{AnyComponent, Ecs, Index, Storage};
 use itertools::multizip;
 
 pub unsafe trait Set<T> {
+    fn set(ecs: &mut Ecs, index: Index, value: T) -> Result<()>;
     fn set_or_create(ecs: &mut Ecs, index: Index, value: T) -> Result<()>;
 }
 
@@ -38,6 +39,11 @@ unsafe impl<T: 'static> Set<T> for T
 where
     T: Component,
 {
+    fn set(ecs: &mut Ecs, index: Index, value: T) -> Result<()> {
+        let component = ecs.get_component_mut::<T>().ok_or("Can't find component")?;
+        component.set(index, Some(value))
+    }
+
     fn set_or_create(ecs: &mut Ecs, index: Index, value: T) -> Result<()> {
         let component = match ecs.get_component_mut::<T>() {
             Some(component) => component,
@@ -137,6 +143,11 @@ macro_rules! impl_set {
     ($($lc:tt $t:tt),+) => {
         unsafe impl<$($t: Set<$t> + 'static),+> Set<($($t),+)> for ($($t),+)
         {
+            fn set(ecs: &mut Ecs, index: Index, value: ($($t),+)) -> Result<()> {
+                let ($($lc),+) = value;
+                $(<$t>::set(ecs, index, $lc)?;)+
+                Ok(())
+            }
             fn set_or_create(ecs: &mut Ecs, index: Index, value: ($($t),+)) -> Result<()> {
                 let ($($lc),+) = value;
                 $(<$t>::set_or_create(ecs, index, $lc)?;)+
