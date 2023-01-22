@@ -280,14 +280,14 @@ impl Ecs {
         Ok(())
     }
 
-    fn iter<'w, T>(&'w self) -> Option<Box<dyn Iterator<Item = <T as Query<T>>::Item<'w>> + 'w>>
+    pub fn iter<'w, T>(&'w self) -> Option<Box<dyn Iterator<Item = <T as Query<T>>::Item<'w>> + 'w>>
     where
         T: Query<T> + 'static,
     {
         Some(Box::new(T::query(self)?.flatten()))
     }
 
-    fn iter_mut<'w, T>(
+    pub fn iter_mut<'w, T>(
         &'w mut self,
     ) -> Option<Box<dyn Iterator<Item = <T as Query<T>>::Item<'w>> + 'w>>
     where
