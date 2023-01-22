@@ -4,6 +4,8 @@ use crate::{prelude::*, Component};
 use crate::{AnyComponent, Ecs, Index, Storage};
 use itertools::multizip;
 
+// TODO: Remove the heap allocations by creating a custom iterator
+
 pub trait Set<T> {
     fn get_type_ids() -> Vec<TypeId>;
     fn set(ecs: &mut Ecs, index: Index, value: T) -> Result<()>;
@@ -24,36 +26,6 @@ pub trait Query<T> {
     fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>>;
 
     fn get(ecs: &Ecs, idx: Index) -> Option<Self::Item<'_>>;
-}
-
-impl<T: 'static> Query<&T> for &T {
-    type Item<'w> = &'w T;
-
-    fn get_type_ids() -> Vec<TypeId> {
-        vec![TypeId::of::<T>()]
-    }
-
-    fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
-        let component = ecs.get_component::<T>()?;
-        let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
-        Some(Box::new(component.iter().map(|x| x.as_ref())))
-    }
-
-    fn query_mut<'w>(
-        ecs: &'w mut Ecs,
-    ) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
-        <&T>::query(ecs)
-    }
-
-    fn get(ecs: &Ecs, idx: Index) -> Option<Self::Item<'_>> {
-        let component = ecs.get_component::<T>()?;
-        let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
-        component.get(idx).ok()?.as_ref()
-    }
-
-    fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
-        <&T>::get(ecs, idx)
-    }
 }
 
 impl<T: 'static> Set<T> for T
@@ -77,6 +49,35 @@ where
             }
         };
         component.set(index, Some(value))
+    }
+}
+
+impl<T: 'static> Query<&T> for &T {
+    type Item<'w> = &'w T;
+
+    fn get_type_ids() -> Vec<TypeId> {
+        vec![TypeId::of::<T>()]
+    }
+
+    fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
+        let component = ecs.get_component::<T>()?;
+        Some(Box::new(component.iter().map(|x| x.as_ref())))
+    }
+
+    fn query_mut<'w>(
+        ecs: &'w mut Ecs,
+    ) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
+        <&T>::query(ecs)
+    }
+
+    fn get(ecs: &Ecs, idx: Index) -> Option<Self::Item<'_>> {
+        let component = ecs.get_component::<T>()?;
+        let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
+        component.get(idx).ok()?.as_ref()
+    }
+
+    fn get_mut(ecs: &mut Ecs, idx: Index) -> Option<Self::Item<'_>> {
+        <&T>::get(ecs, idx)
     }
 }
 
@@ -119,7 +120,6 @@ impl<T: 'static> Query<Option<&T>> for Option<&T> {
 
     fn query<'w>(ecs: &'w Ecs) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
         let component = ecs.get_component::<T>().unwrap();
-        let component = component.as_any().downcast_ref::<Storage<T>>().unwrap();
         Some(Box::new(component.iter().map(Some)))
     }
 
@@ -155,7 +155,6 @@ impl<T: 'static> Query<Option<&mut T>> for Option<&mut T> {
         ecs: &'w mut Ecs,
     ) -> Option<Box<dyn Iterator<Item = Option<Self::Item<'w>>> + 'w>> {
         let component = ecs.get_component_mut::<T>().unwrap();
-        let component = component.as_any_mut().downcast_mut::<Storage<T>>().unwrap();
         Some(Box::new(component.iter_mut().map(Some)))
     }
 
@@ -227,7 +226,6 @@ macro_rules! impl_query {
                     ($($t::get_mut(unsafe { &mut *(ecs as *mut Ecs) }, idx)?),+)
                 ))
             }
-
         }
     };
 }
