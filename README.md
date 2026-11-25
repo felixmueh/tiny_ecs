@@ -97,3 +97,7 @@ Written in two weeks and not developed since. It needs Rust 1.65 or newer
 
 Every query walks all entity slots through boxed iterators. Error handling is
 incomplete, and archetypes, systems and scheduling are missing.
+
+## License
+
+MIT. See `LICENSE`.
